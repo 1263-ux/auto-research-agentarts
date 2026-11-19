@@ -1,5 +1,17 @@
 # 本轮进展
 
+## 2026-11-19 键契约：把「id 不是键」变成构建期断言（WorkBuddy 周期检查第 6 轮，北京时间 23:14 起）
+
+零研究行动、零模型、零付费。冻结包一字未动（`freeze.py --check` → `FROZEN PACKET INTACT`，snapshot `f8f35400…`）。新增 `scripts/packet_key_contract.py`，产物 `runs/key-contract-20261119/contract.json`。
+
+**阶段判定**：不是 M2。M1 与 M1b 各 2/2 行动已用尽、无新卡；工作台在 **23:11–23:12** 被另一个写者归档并重写（`30-当前迭代.md` 缩为指针 + `30-当前迭代.history-20261119.md` + `历史/2026-11-19/`），产品记录固定在提交 `1b0f065`，`docs/plan.md` 仍写「开发推进已按用户要求停止」。所以当前是**新计划期**（工作台待讨论项：十个以上初始配方 + 外部已发表基线），任何配方复跑都要先有预注册卡。按单 writer 纪律，本轮不改该文件主段，只在末尾追加指针。
+
+**契约 v1**：`partition` 必填且取值闭集 `{kept, excluded}`；`(id, partition)` 表内与跨表唯一；`id` 单用、`(id, kept_as)` 复合都不得当键。阻塞项 C1/C2/C3，证据项 C4/C5（干净的新包可能合法复用 id，故永不阻塞）。纯标准库、不导入 `src.autoresearch`，构建器在冻结前调一次 `assert_contract()` 即失败即停。
+
+**在 M1b 真实行上跑出来的负结果，修正了上一轮那句话**：上一轮写「能用的修法只有重打 id 或加 `partition` 字段，两者都要重建」。实测——**只重打 id 把跨表键碰撞降到 0（`route_a_collisions=0`）却过不了 C1**（缺 `partition`，整包 FAIL）；**只加分区字段就已足够**（`route_b` 是唯一单步 `PASS`）；两者组合也 PASS，但重打 id 不再必要。差别只有一行输出，却直接决定下一个包要不要写重打逻辑。原样包报 `LEGACY_VIOLATION_EXPECTED`，其中裸 `id` 碰撞 **10**、`(id, kept_as)` 碰撞 **10**——第二次以独立实现确认勘误建议的复合键不成立。
+
+**自检**：故障注入 9/9（单表重复、跨表同分区重复、缺/空/越界 `partition`、遗留 `(id, kept_as)` 同值、`assert_contract` 抛错等），输出连跑两次逐字节相同（`7eed1336…`），脚本 SHA `4152210a…`。预算：行动 0、模型 0、fit 0、现金 0；平台用量 unknown。**M1b 卡仍是 `needs_review`**，本轮未代签。[报告](workbuddy/key-contract-20261119.md)
+
 ## 2026-11-19 下一张卡的题量与最小可检测效应（WorkBuddy，北京时间 20:34–20:52）
 
 零研究行动、零模型、零付费。只读消费 M1b 的 `per_query_metrics`（24 道 validation），脚本 `scripts/plan_mdes.py`，产物 `runs/mdes-20261119/plan.json`。
