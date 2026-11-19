@@ -1,5 +1,9 @@
 # 当前自主研究开发
 
+2026-11-20 **W05 审批卡草案 v0.1 已起草并机械校验（周期检查第 7 轮 / 三小时对齐点 03:05，零研究行动、零模型、零现金）**：`docs/project/workbuddy/w05-card-draft-20261120.md` 按独审门槛 9 字段全部落位，其中 **7 项 frozen / 1 项 open / 1 项 blocked**，因此**未达 9/9、不得执行**。open 的是 F1 独立数据（三候选 O1 同卷换题 / O2 另一 CFR title 固定卷 / O3 其他公有领域源，推荐 O2 但推荐≠决定，属 Owner 级）；blocked 的是 F4 反馈分支（真实回执来源 `ProjectController.advance` 在 Windows 因 B1 不可达，分支条件可写、回执驱动无法实测）。课题从「BM25 vs TF-IDF」换成**结构**比较：A=单路 BM25，B=BM25 粗排 100 → RM3 伪相关反馈（fb_docs=20、fb_terms=10、orig_weight=0.5）重排取 20；主终点 mrr@10 单侧 α=.05，次终点 ndcg@10，**明确不主张等价**（等价需 TOST）。已查明本仓库**无任何 RM3/伪相关反馈实现**（`rm3`/`pseudo.relevance`/`robertson` 三词在 `src/`、`scripts/` 均 0 命中），故卡批准后先做 W05a（新模块 + 退化夹具单测），且不改既有 `COMPARISON` 常量。校验器 `scripts/w05_card_check.py` 12 条规则、退出码 0/2/1，对本卡判 `EXIT 2 DRAFT_OK_NEEDS_OWNER`，故障注入自检 **20/20**；独立复算卡内 7 个数字与 `runs/mdes-20261119/plan.json` 逐个相等（426/107/48/336/84/0.210508/23·1）。顺带查清 336 与 426 之差是**两个常数**（TOST 用单侧 6.182558，检测用双侧 7.848879），不是四舍五入，日后不得合并。[卡片](workbuddy/w05-card-draft-20261120.md)
+
+2026-11-19 后续安排见 [WorkBuddy 持续推进计划](workbuddy/continuous-plan.md)。上游工作流接入、十个以上配方、自主推进和交付按阶段验收。实际执行结果继续在本页登记。
+
 **WorkBuddy 手动交接（2026-11-18）**。入口包含首轮任务、团队分工、阶段验收、外部调研和首个真实检索课题草案。先交可评审的输入与预注册证据，研究执行按批准范围开始。[WorkBuddy 交接](workbuddy/README.md)
 
 2026-11-19 **键契约做成构建期断言（周期检查第 6 轮，零研究行动）**：`scripts/packet_key_contract.py` 把「`id` 不是键」变成可执行契约（`(id, partition)` 唯一、`partition` 必填且闭集 `{kept, excluded}`），新包构建器调 `assert_contract()` 即卡住重复键；自检故障注入 9/9，输出连跑两次逐字节相同（`7eed1336…`）。**在 M1b 真实行上的实测修正了上一轮的一句话**：只重打 id 只能把碰撞降到 0（`route_a` 0 处）却过不了 C1（缺 `partition`），**只加分区字段就已足够**（`route_b` 是唯一单步 PASS），两者组合也可行但重打 id 不再必要。原样包报 `LEGACY_VIOLATION_EXPECTED`：裸 `id` 碰撞 10、`(id, kept_as)` 碰撞 10（独立实现的第二次确认）。冻结包一字未动（`INTACT` / `f8f35400…`）。阶段判定：M1 线收尾后的**新计划期**，不是 M2；工作台已于 23:12 归档并固定在提交 `1b0f065`。[报告](workbuddy/key-contract-20261119.md)
