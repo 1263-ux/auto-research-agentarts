@@ -1,5 +1,11 @@
 # WorkBuddy 项目交接
 
+赛题二后续从 [持续推进计划](continuous-plan.md) 和 [可直接转交的启动指令](continuous-handoff.md) 开始。每项验收后立即接下一项，每三小时核对总纲、交付和预算。WorkBuddy 的实际启动与接续以执行回执为准。
+
+## 2026-11-18 历史交接
+
+以下保留 GovInfo 首课题交接时的资料和原指令，供回查。
+
 本次交接于 2026-11-18 建立。项目目标是在现有研究工作台里提出可检验的问题，用真实输入跑实验，再让可复核的结果决定下一步。WorkBuddy 第一件交付是把一个具体真实课题准备到可批准、可执行的状态。拿到该课题的执行授权后，交付能从原请求接续的运行证据、研究结论和独立复核。
 
 | 阅读顺序 | 用途 |
@@ -16,7 +22,7 @@
 
 S139 的五份未提交文件留在 Codex 源码续作工作树，快照位于其本地 `runs/s139-checkpoint-002/manifest.json`，SHA-256 为 `c426eaca2780363b4046fbc10ece9faab76969282cc3f894ddf00930c5c36c51`。独审提交 `a3726697454735457591e6270ba3bc920c53a21f`，合成测试因缺入口失败。GitHub 有审查和失败记录，本地五份 WIP 和 `runs/` 未随交接推送。直接推进下述检索路线。只有所选真实研究路径实际依赖该代码时，才立独立任务处理 S139。访问同一旧工作树时须先查 lease 与未提交文件，禁止 `reset`、`clean` 或搬动原件。[S139 审查](../../execution/SPRINT-139-review.md)
 
-## 可直接发给 WorkBuddy
+## 当时的 WorkBuddy 指令
 
 ```text
 接手 open-agent-power/auto-research-agentarts，先完成 GitHub main 的
