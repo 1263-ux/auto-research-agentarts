@@ -29,6 +29,26 @@
     ],
     "note": "Six rules passing means the manifest does not contradict the cards; it does not mean the manifest captured every field. The not_verified list keeps that limit visible."
   },
+  "blocker_check": {
+    "script": "scripts/p2_blockers_check.py",
+    "verdict": "MAPPING_COMPLETE",
+    "exit_code": 0,
+    "checked_at": "2026-11-20T17:40+08:00",
+    "summary": {"blockers": 29, "confirmed": 7, "stale": 0, "undecidable": 22, "unmapped": 0},
+    "environment": "python 3.12.14 (.venv); numpy 2.5.4 present, scipy 1.18.1 present, pyyaml 6.0.3 present; pandas absent",
+    "verified_scope": [
+      "every module-typed blocker was probed on this machine: present or absent",
+      "Elasticsearch was checked on 9200 and 9300 locally, both closed, not just by client absence",
+      "no blocker is silently dropped: an unmapped wording exits 2 instead of passing",
+      "the two contradiction rules (no run and no blockers; draft-only and no blockers) hold for all ten cards"
+    ],
+    "not_verified": [
+      "whether each blocker list is complete -- a blocker nobody wrote down is invisible to this check",
+      "the 22 external blockers: dataset hashes, licences, credentials, upstream releases, network need",
+      "whether an authorised smoke run would actually pass"
+    ],
+    "note": "Exit 0 means the mapping covers all 29 blockers and none of them describes an environment that has changed. It does not mean these recipes can run. Installing the 7 confirmed modules would close 7 of 29 blockers and leave the other 22 exactly where they are, because those need data, licences or credentials rather than packages."
+  },
   "recipes": [
     {
       "number": 1,
