@@ -1,5 +1,33 @@
 # 本轮进展
 
+## 2026-11-20 W05a：RM3 模块先做到可证伪，再去要授权（周期检查第 8 轮，北京时间 13:28 起）
+
+零研究行动、零模型、零现金、零推送、零外发。起点 `ec6d7af` 干净，`git diff --stat` 全程为空——本轮只新增文件，`src/` 一行未改。
+
+**阶段判定**：仍是**配方库/计划期**。W05 卡 7 frozen / 1 open / 1 blocked，`execution = not_authorized`，M1/M1b 各 2/2 仍用尽。所以不做研究，只做卡里写明「批准后先做」的那件工程：W05a。
+
+**为什么可以现在做**：F1（语料）与 F4（回执）卡在 Owner 侧，但 W05a 与这两项无依赖——两臂的算法与语料无关。把它先做成可运行、可证伪的模块，批准后就是单次执行，而不是在执行窗口里调试。
+
+**交付**：`scripts/w05a_rm3.py`（284 行）+ `scripts/w05a_selftest.py`（267 行）+ `runs/w05a-20261120/selftest.txt`。自检 **49/49**、退出码 0、输出连跑两次逐字节相同（`ef5f654f…`）。必须用 `.venv`：跨实现的 F1 要导入 `src/autoresearch/`，托管 3.13.12 会 `SKIP` 并返回 2（那不是通过）。
+
+**结构上的取舍**：本仓库已知「排序有两份实现」（`retrieval_lexical` 字面量 vs `COMPARISON`）。再写一份就是第三份。做法是把 `k1/b/top_k/candidate_depth/fb_docs/fb_terms/orig_weight/tokenizer/tie_break` 全部当**数据**放 `PROTOCOL`，自检逐项断言它等于 `relevance_retrieval_adapter.COMPARISON`，并在合成语料上比对 `adapter.retrieve(...,"bm25")` 的排序（4 条查询 + 1 条带排除）完全相等。任一侧改常量，自检就红——漂移变成可检测，而不是静默。
+
+**唯一真正强的退化断言**：`orig_weight=1.0` 时反馈项系数为 0，浮点上 `1.0*x + 0.0*y == x` 精确成立，所以两阶段排序必须**与单路 top-k 完全相等**。这条是严格相等，不是容差比较。其余夹具只能证明「行为符合定义」，不能证明方法更好——报告里写清了这条界线。
+
+**本轮最重要的一条，是卡的问题不是代码的问题**：F2 冻结了 `fb_terms=10`，却没说明**扩展词表怎么选**。两种读法都合文献：`combined_top_k`（Indri/Lemur：合并分布取 top-k，原始词可能被挤掉）与 `always_retain`（补回被挤掉的原始词）。合成夹具（4 篇，查询 `alpha beta`）上：
+
+| 配置 | 排序 | 参与打分 | 被丢的原词 |
+| --- | --- | --- | --- |
+| A 臂单路 BM25 | `e1 e4 e2 e3` | alpha, beta | — |
+| combined_top_k, fb_terms=1 | `e2 e3 e4` | gamma | **alpha, beta** |
+| always_retain, fb_terms=1 | `e4 e2 e3 e1` | gamma, alpha, beta | 无 |
+
+两件可操作的事实：① `e1`（唯一同时命中两个查询词、不含 gamma 的文档）在 A 臂第 1，`fb_terms=10` 下掉到第 4，`fb_terms=1` 下**直接消失**——卡里声明的「查询漂移」风险现在有可复算的演示；② **`always_retain` 会让 `fb_terms` 退化**，本例 `fb_terms=1` 与 `10` 完全同结果，等于把卡里一个参数变成空参数。**W05 执行前 F2 必须补 `original_term_policy` 并由 Owner 冻结**，否则两套数都算合规。我没有改卡（F2 是 frozen 字段），模块把实际用的策略写进 `diagnostics.original_term_policy`，结果无法谎报自己用了哪种。
+
+**两条自查缺陷（保留）**：① 初版夹具 `"gamma" * 30` 在 Python 里是**字符串拼接**，生成一个 150 字符巨型 token，F9 报出假失败 `dropped=['beta']`，我起初误以为权重算错；正解是 `" gamma" * 30`。② 「排除后候选数 = 语料篇数 − 1」写错了——`candidate_count` 数的是**有得分**的文档。两次都是夹具/断言的错，不是模块的错，与「先跑真实对象再看自检」是同一类教训的反面：合成夹具本身也要被验证。
+
+**边界**：模块**未接线**（全仓仅自检引用）、**未碰冻结语料**（没读 `runs/m1*`）、没跑过任何排名；W05 卡仍 `not_authorized`；M1b 代理签名仍 `needs_review`，未代签。预算：行动 0 / 模型 0 / fit 0 / 现金 0 / 推送 0；`confirmed_cash_spent=null` → unknown；平台用量 unknown。报告与模块未经真人签字，属冷上下文复核范围，标 `needs_review`。
+
 ## 2026-11-20 W05 审批卡草案 v0.1：9 字段里 7 项冻结、2 项未过（周期检查第 7 轮，北京时间 02:24 起）
 
 零研究行动、零模型、零现金、零推送、零外发。这是三小时对齐点（03:05）前的对齐轮，也是上一版状态文件写明的「下一个零成本任务」。
