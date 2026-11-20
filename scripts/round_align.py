@@ -11,6 +11,16 @@ It is a *report*, not a gate. It prints each exit code verbatim and never collap
 them into a verdict. Collapsing is how a green summary ends up meaning less than
 the reader thinks it means, which is the failure this project keeps recording.
 
+A bare exit code is still ambiguous, and this project has now been bitten by that
+three times. `rc=1` can mean "the gate judged the object a failure" or "the gate
+raised before it judged anything". `rc=2` can be a designed `pending` verdict or
+argparse refusing the flag. So each row also carries a `how` column saying which
+of those happened: a printed `EXIT n (TOKEN)` line that agrees with the process
+code, the same line disagreeing (`VERDICT-MISMATCH`), a `N/M checks passed`
+self-test line, a traceback (`crashed`), an argparse rejection (`usage`), or
+nothing at all (`silent` / `died`). Reading `rc` alone is what makes an unknown
+look like a failure.
+
 What it does not do
 -------------------
 No writes, no installs, no network, no research actions, no model calls. It does
@@ -26,6 +36,7 @@ The gates' own exit codes are in the table, and in --json under "gates".
 
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -99,17 +110,63 @@ def budget_state(root):
             "status": document.get("status")}
 
 
+VERDICT_LINE = re.compile(r"^EXIT\s+(-?\d+)\s*(?:\(([^)]*)\))?\s*$")
+CHECK_LINE = re.compile(r"^(\d+)/(\d+) checks passed\s*$")
+TRACEBACK = "Traceback (most recent call last)"
+# argparse's own words. Kept as a list because it has changed wording between
+# Python versions and a missed phrase silently degrades `usage` to `died`.
+USAGE_MARKERS = ("unrecognized arguments", "the following arguments are required",
+                 "invalid choice", "unknown option", "no such option")
+
+
+def _how(rc, out, err, stated, checks):
+    """What does this exit code actually mean? Never 'pass' or 'fail'.
+
+    The order matters. A traceback outranks everything: a gate that raised may
+    still have printed a verdict line for an earlier stage, and that line is not
+    a statement about the object under test. A usage rejection outranks the codes
+    too, because argparse exits 2 and a gate that uses 2 for `pending` would
+    otherwise be read as a verdict it never gave.
+    """
+    if TRACEBACK in err:
+        return "crashed"
+    if any(marker in err for marker in USAGE_MARKERS):
+        return "usage"
+    if stated is not None and checks is None:
+        return "verdict" if stated == rc else "VERDICT-MISMATCH"
+    if checks is not None:
+        return "selftest"
+    return "silent" if rc == 0 else "died"
+
+
 def _record(name, script, rc, out, err, started):
     """Turn a finished (or abandoned) run into one row. Pure, so it can be tested."""
     lines = [line for line in out.splitlines() if line.strip()]
     errors = [line for line in err.splitlines()
               if line.strip() and not line.startswith("warning:")]
+    stated = None
+    stated_token = None
+    checks = None
+    for line in lines:
+        stripped = line.strip()
+        match = VERDICT_LINE.match(stripped)
+        if match:
+            stated, stated_token = int(match.group(1)), (match.group(2) or "").strip()
+            continue
+        match = CHECK_LINE.match(stripped)
+        if match:
+            checks = (int(match.group(1)), int(match.group(2)))
     # Prefer the line the gate itself calls its verdict. A git or pip warning on
     # stderr would otherwise become "the last line" and tell the reader nothing.
-    summary = next((line for line in lines if line.startswith("EXIT ")), None)
+    summary = next((line for line in lines if VERDICT_LINE.match(line.strip())), None)
+    if summary is None:
+        summary = next((line for line in lines if CHECK_LINE.match(line.strip())), None)
     if summary is None:
         summary = lines[-1] if lines else (errors[-1] if errors else "")
     return {"name": name, "script": script, "exit_code": rc,
+            "how": _how(rc, out, err, stated, checks),
+            "stated_exit": stated, "verdict_token": stated_token,
+            "checks": None if checks is None else "%d/%d" % checks,
             "last_line": summary, "seconds": round(time.time() - started, 1)}
 
 
@@ -172,9 +229,17 @@ def render(report):
             lines.append("  confirmed spent is null -> unknown, not zero")
 
     lines.append("")
-    lines.append("GATES (exit codes verbatim; this command never decides pass/fail)")
+    lines.append("GATES (rc verbatim; how says what that rc means; no pass/fail decision)")
     for gate in report["gates"]:
-        lines.append("  rc=%-3s %-22s %s" % (gate["exit_code"], gate["name"], gate["last_line"][:96]))
+        lines.append("  rc=%-3s how=%-16s %-22s %s"
+                     % (gate["exit_code"], gate.get("how", "?"), gate["name"],
+                        gate["last_line"][:92]))
+    broken = [gate["name"] for gate in report["gates"]
+              if gate.get("how") in ("crashed", "usage", "died", "VERDICT-MISMATCH")]
+    if broken:
+        lines.append("  NOTE %d row(s) whose rc is not a verdict: %s"
+                     % (len(broken), ", ".join(broken)))
+        lines.append("       a non-verdict rc must not be quoted as 'the gate still says X'")
     return "\n".join(lines)
 
 
@@ -233,6 +298,54 @@ def selftest():
         check("S5 null spend stays null", budget["confirmed_cash_spent"] is None, str(budget))
         text = render({"repository": state, "newest_write": None, "budget": budget, "gates": []})
         check("S5b the report says unknown rather than zero", "unknown, not zero" in text)
+
+        # --- S6..S11: an exit code alone is ambiguous; `how` must disambiguate ---
+        def row(rc, out="", err=""):
+            return _record("g", "g.py", rc, out, err, time.time())
+
+        record = row(1, "EXIT 1 (FAIL: R5_anchor)\n")
+        check("S6 a stated verdict that agrees is 'verdict'", record["how"] == "verdict", record["how"])
+        check("S6b the token is kept", record["verdict_token"] == "FAIL: R5_anchor", str(record["verdict_token"]))
+
+        # The dangerous case: the gate says one thing and the process says another.
+        record = row(0, "EXIT 1 (FAIL: R5_anchor)\n")
+        check("S7 a verdict disagreeing with rc is flagged", record["how"] == "VERDICT-MISMATCH", record["how"])
+        record = row(2, "EXIT 0 (PASS)\n")
+        check("S7b mismatch is symmetric", record["how"] == "VERDICT-MISMATCH", record["how"])
+
+        # A crash must never be readable as the gate's judgement. rc=1 either way.
+        record = row(1, "", "Traceback (most recent call last):\n  ...\nModuleNotFoundError: x\n")
+        check("S8 a traceback is 'crashed', not 'verdict'", record["how"] == "crashed", record["how"])
+        record = row(1, "EXIT 1 (FAIL: R5_anchor)\n", "Traceback (most recent call last):\nKeyError: x\n")
+        check("S8b a traceback outranks a printed verdict", record["how"] == "crashed", record["how"])
+
+        # argparse exits 2; a gate may also use 2 for 'pending'. They differ.
+        record = row(2, "", "usage: g.py [-h] [--card C]\ng.py: error: unrecognized arguments: --selftest\n")
+        check("S9 argparse rejection is 'usage', not a verdict", record["how"] == "usage", record["how"])
+        record = row(2, "EXIT 2 (DRAFT_OK_NEEDS_OWNER)\n")
+        check("S9b a designed pending verdict still reads as 'verdict'", record["how"] == "verdict", record["how"])
+
+        record = row(0, "13/13 checks passed\n")
+        check("S10 a selftest fraction is 'selftest'", record["how"] == "selftest", record["how"])
+        check("S10b the denominator is kept", record["checks"] == "13/13", str(record["checks"]))
+        record = row(1, "10/13 checks passed\n")
+        check("S10c a failing selftest keeps both numbers", record["checks"] == "10/13", str(record["checks"]))
+
+        record = row(0, "")
+        check("S11 silence with rc=0 is 'silent'", record["how"] == "silent", record["how"])
+        record = row(4, "")
+        check("S11b silence with rc!=0 is 'died'", record["how"] == "died", record["how"])
+
+        # The note must fire for exactly the non-verdict rows, or the reader is
+        # back to reading bare codes.
+        rows = [row(1, "EXIT 1 (FAIL: R5_anchor)\n"), row(1, "", "Traceback (most recent call last):\n")]
+        text = render({"repository": state, "newest_write": None, "budget": budget, "gates": rows})
+        check("S12 the note names the row whose rc is not a verdict",
+              "1 row(s)" in text and "Traceback" not in text.split("NOTE")[-1], text.split("NOTE")[-1][:80])
+        rows_ok = [row(1, "EXIT 1 (FAIL: R5_anchor)\n")]
+        text_ok = render({"repository": state, "newest_write": None, "budget": budget, "gates": rows_ok})
+        check("S12b a well-formed verdict does not raise the note", "NOTE" not in text_ok)
+
 
     passed = sum(1 for _, ok, _ in results if ok)
     for name, ok, detail in results:
