@@ -5,7 +5,30 @@
   "p2_requirement": "continuous-plan.md:10 and :36 (ten or more versioned recipes, each with a re-runnable minimal example and a call record from this project, blockers with substitutes, and coverage of research/data-evaluation/engineering-computation)",
   "declared_on": "2026-11-20T15:40+08:00",
   "field_completeness_verified": false,
-  "field_completeness_note": "The nine per-card fields are declared here, not re-parsed from prose. Earlier attempts to grep the cards for field labels produced false 'missing' results because the cards word the same field differently (e.g. 原产物 appears only on the six W04c cards). Declared booleans are transcriptions; scripts/p2_recipe_check.py verifies structure and evidence, not prose.",
+  "field_completeness_note": "The nine per-card fields are declared here, not reconstructed from prose. Declared booleans are transcriptions; scripts/p2_recipe_check.py verifies structure and evidence, not full field-by-field equality, which is why the flag stays false. A previous version of this note claimed 原产物 appeared only on the six W04c cards; that was wrong -- all ten cards carry it, six as 原产物 and four as 原产物（上游公布，非本项目）. The error came from searching for one exact spelling.",
+  "transcript_check": {
+    "script": "scripts/recipe_transcript_check.py",
+    "verdict": "TRANSCRIPT_CONSISTENT",
+    "exit_code": 0,
+    "rules": 6,
+    "checked_at": "2026-11-20T16:37+08:00",
+    "verified_scope": [
+      "every row resolves to an existing 卡 N heading in its declared file",
+      "manifest titles and heading titles share a distinctive token",
+      "all 11 commit/version pins in anchor_value appear verbatim in the cards",
+      "min_example=draft_only agrees with the card-side 可重跑最小例 draft label, in both directions",
+      "each field flagged true has a card-side label, tolerant of qualifiers like 失败条件（g0）",
+      "card numbering 1..10 matches the manifest exactly"
+    ],
+    "not_verified": [
+      "blockers list contents",
+      "category and anchor_strength assignments",
+      "substitute_or_next_acceptance wording",
+      "ict_change prose",
+      "whether downstream dependencies exist in the current environment"
+    ],
+    "note": "Six rules passing means the manifest does not contradict the cards; it does not mean the manifest captured every field. The not_verified list keeps that limit visible."
+  },
   "recipes": [
     {
       "number": 1,
