@@ -1,17 +1,25 @@
 """Mechanical check for the W05 approval-card draft.
 
 Reads the card's machine-readable block and the planning artifact, then applies
-eleven rules. It never imports `src.autoresearch`, never touches the network and
+fourteen rules. It never imports `src.autoresearch`, never touches the network and
 never writes into a frozen packet: the point is to make the card reviewable, not
 to decide anything for the Owner.
 
 Exit codes
   0  PASS                     every field frozen, card signed
-  2  DRAFT_OK_NEEDS_OWNER     structure sound, at least one field open/blocked or unsigned
+  2  DRAFT_OK_NEEDS_OWNER     structure sound, at least one field open/blocked, undecided or unsigned
   1  FAIL                     a rule is violated; card must not reach execution
 
-The numeric rule (R8) recomputes the expected values from the planning artifact
+A rule reports one of three states rather than pass/fail, because "the Owner has
+not chosen yet" and "the card says something wrong" are different problems: a
+`pending` rule keeps the draft reviewable (exit 2), a `fail` stops it (exit 1).
+R13/R14 use that split: an undecided expansion policy is pending, an unknown
+policy or an arm that disagrees with scripts/w05a_rm3.PROTOCOL is a failure.
+
+The numeric rule (R9) recomputes the expected values from the planning artifact
 instead of trusting numbers typed into prose, so a stale figure fails the check.
+R14 does the same for the arm: the card's numbers must equal the module's, which
+is how the two cannot drift apart quietly.
 """
 import argparse
 import copy
@@ -26,6 +34,8 @@ DIRECTIONS = {"one_sided_greater", "one_sided_less", "two_sided"}
 PLACEHOLDERS = ("TODO", "TBD", "待定", "待补")
 BLOCK_START = "```w05card"
 BLOCK_END = "```"
+ORIGINAL_TERM_POLICIES = ("combined_top_k", "always_retain")
+ARM_KEYS = ("k1", "b", "top_k", "candidate_depth", "fb_docs", "fb_terms", "orig_weight")
 
 
 def read_text(path):
@@ -66,11 +76,21 @@ def expected_numbers(plan):
 
 
 def check(text, plan):
-    """Apply the rules. Returns (exit_code, results) with one dict per rule."""
+    """Apply the rules. Returns (exit_code, results) with one dict per rule.
+
+    Each result carries `state` in {pass, pending, fail}. `ok` is kept as the
+    pass/fail projection so existing readers of check.json keep working.
+    """
     results = []
 
+    def record(rule, state, detail):
+        results.append({"rule": rule, "ok": state == "pass", "state": state, "detail": detail})
+
     def add(rule, ok, detail):
-        results.append({"rule": rule, "ok": bool(ok), "detail": detail})
+        record(rule, "pass" if ok else "fail", detail)
+
+    def pending(rule, detail):
+        record(rule, "pending", detail)
 
     card, error = extract_block(text)
     add("R1_block", card is not None, error or "machine-readable block parsed")
@@ -156,16 +176,61 @@ def check(text, plan):
     add("R12_no_placeholder", not placeholders,
         "placeholder text in: " + ", ".join(placeholders) if placeholders else "no TODO/TBD markers")
 
-    if any(not item["ok"] for item in results):
+    f2 = fields["F2"]
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import w05a_rm3
+        protocol = w05a_rm3.PROTOCOL
+    except Exception as exc:  # noqa: BLE001 - a missing module must fail the rule, not the run
+        protocol = None
+        add("R14_arm_matches_module", False, "cannot load w05a_rm3: " + str(exc))
+
+    policy = f2.get("original_term_policy", "<missing>")
+    if policy == "<missing>":
+        add("R13_term_policy", False,
+            "F2 does not encode original_term_policy; how the expanded term list is chosen is unstated")
+    elif policy is None:
+        pending("R13_term_policy",
+                "F2 original_term_policy undecided; Owner picks " + " / ".join(ORIGINAL_TERM_POLICIES))
+    elif policy not in ORIGINAL_TERM_POLICIES:
+        add("R13_term_policy", False, "F2 original_term_policy=%r is outside the closed set" % (policy,))
+    elif protocol is not None and policy != protocol["original_term_policy"]:
+        # Deciding on paper is not enough: the module would still run its own
+        # default, so the card and the code would disagree in silence.
+        add("R13_term_policy", False,
+            "F2 says %r but w05a_rm3.PROTOCOL says %r; align one of them"
+            % (policy, protocol["original_term_policy"]))
+    else:
+        add("R13_term_policy", True, "F2 original_term_policy=%r matches the module" % (policy,))
+
+    if protocol is not None:
+        arm = f2.get("arm")
+        if not isinstance(arm, dict):
+            add("R14_arm_matches_module", False, "F2 does not encode machine-readable arm numbers")
+        else:
+            drift = []
+            for key in ARM_KEYS:
+                got, want = arm.get(key, "<missing>"), protocol[key]
+                if isinstance(want, float):
+                    numeric = isinstance(got, (int, float)) and not isinstance(got, bool)
+                    if not numeric or abs(got - want) > 1e-12:
+                        drift.append("%s card=%r module=%r" % (key, got, want))
+                elif got != want:
+                    drift.append("%s card=%r module=%r" % (key, got, want))
+            add("R14_arm_matches_module", not drift,
+                "; ".join(drift) if drift else "F2 arm equals w05a_rm3.PROTOCOL on 7 values")
+
+    states = [item["state"] for item in results]
+    if "fail" in states:
         return 1, results
     unresolved = [name for name in FIELDS if fields[name]["status"] != "frozen"]
-    if unresolved or not signed:
+    if "pending" in states or unresolved or not signed:
         return 2, results
     return 0, results
 
 
 def render(results, code):
-    lines = ["%-22s %s  %s" % (item["rule"], "PASS" if item["ok"] else "FAIL", item["detail"])
+    lines = ["%-24s %-7s %s" % (item["rule"], item["state"].upper(), item["detail"])
              for item in results]
     lines.append("")
     lines.append("EXIT %d (%s)" % (code, {0: "PASS", 1: "FAIL", 2: "DRAFT_OK_NEEDS_OWNER"}[code]))
@@ -191,9 +256,24 @@ MUTATIONS = [
     ("partition no longer required", lambda card: card["fields"]["F8"].__setitem__("requires_partition", False), 1),
     ("execute while unsigned", lambda card: card.__setitem__("execution", "authorized"), 1),
     ("placeholder left in a field", lambda card: card["fields"]["F9"].__setitem__("value", "TODO"), 1),
+    ("strip the expansion policy", lambda card: card["fields"]["F2"].pop("original_term_policy"), 1),
+    ("policy outside the closed set", lambda card: card["fields"]["F2"].__setitem__(
+        "original_term_policy", "keep_everything"), 1),
+    ("policy disagrees with the module default", lambda card: card["fields"]["F2"].__setitem__(
+        "original_term_policy", "always_retain"), 1),
+    ("arm drift on fb_terms", lambda card: card["fields"]["F2"]["arm"].__setitem__("fb_terms", 5), 1),
+    ("arm drift on k1", lambda card: card["fields"]["F2"]["arm"].__setitem__("k1", 1.5), 1),
+    ("arm numbers absent", lambda card: card["fields"]["F2"].pop("arm"), 1),
+    ("signed and frozen but policy undecided", lambda card: (
+        card.__setitem__("signature", "selftest-owner"),
+        card.__setitem__("execution", "authorized"),
+        [card["fields"][name].__setitem__("status", "frozen") for name in ("F1", "F4")],
+        [card["fields"][name].__setitem__("frozen_at", "2026-11-20T03:00+08:00") for name in ("F1", "F4")],
+    ), 2),
     ("signed and fully frozen", lambda card: (
         card.__setitem__("signature", "selftest-owner"),
         card.__setitem__("execution", "authorized"),
+        card["fields"]["F2"].__setitem__("original_term_policy", "combined_top_k"),
         [card["fields"][name].__setitem__("status", "frozen") for name in ("F1", "F4")],
         [card["fields"][name].__setitem__("frozen_at", "2026-11-20T03:00+08:00") for name in ("F1", "F4")],
     ), 0),

@@ -1,5 +1,27 @@
 # 本轮进展
 
+## 2026-11-20 W05 门禁 R13/R14：把上一轮的发现变成机械判定（周期检查第 9 轮，北京时间 15:07 起）
+
+零研究行动、零模型、零现金、零推送。上一轮查出 F2 冻结 `fb_terms=10` 却没定「扩展词表怎么选」，当时只写进报告和记忆——**写在报告里不等于修好**。本轮做成门禁。
+
+**为什么不直接给卡补个值**：补上 `original_term_policy: "combined_top_k"` 卡就绿了，但那是我替 Owner 做决定，而且是把一个会改结果的参数塞进 frozen 字段。做法反过来：**卡继续红着，但红得可读**——机器能量出「这一项还没定」，不必靠人通读散文。
+
+**三态判定**：原来每条规则只有 pass/fail，`fail` 一律 exit 1。但「Owner 还没选」和「卡写错了」是两种问题。新增 `pending`：结构正确、等决定 → 维持 `EXIT 2`；违反规则 → `EXIT 1`。
+
+**R13_term_policy**：F2 必须编码策略，闭集 `{combined_top_k, always_retain}`。字段缺失 → FAIL（不是「没写就默认」，是「没写就不知道」）；`null` → PENDING；出闭集 → FAIL；**闭集内但与 `w05a_rm3.PROTOCOL` 不同 → FAIL**。
+
+最后这条是本轮最实用的：没有它，Owner 在纸上选 `always_retain`、代码继续跑 `combined_top_k`，两边都不报错，出来的数却对不上卡。**决定必须落到代码里才算数。**
+
+**R14_arm_matches_module**：F2 的 7 个数字（`k1/b/top_k/candidate_depth/fb_docs/fb_terms/orig_weight`）必须与 `w05a_rm3.PROTOCOL` 逐项相等（浮点 `1e-12`），模块加载失败直接 FAIL 不静默跳过。这是上一轮「不写第三份 BM25 常量」的延伸：卡与模块也不能各说各话。
+
+**卡上的改动只有编码**：F2 增 `arm`（把散文里已冻结的 7 个数字原样转写成机器可读）+ `original_term_policy: null`（明确表示已登记未定），正文加「F2 修订提案（pending，未生效）」，把两选项的读法、`fb_terms=1` 时 3 篇 vs 4 篇、以及 `always_retain` 让 `fb_terms` 退化的副作用摆给 Owner 一次决定。已冻结的数值一个没改。
+
+**实测**：故障注入自检 **27/27**（原 20 + 7 条新变异），退出码 0；对本卡 `EXIT 2`，`R13 PENDING` / `R14 PASS` / 其余 12 条 PASS；连跑两次输出逐字节相同（`28b34cac…`）；脚本 SHA `81bdf2dc…`。7 条新变异里最关键的是「全冻结+签字但策略仍未定 → 期望 2」：**签字也绕不过未决项**。
+
+**保留的疑点（登记不隐藏）**：① `EXIT 2` 语义变宽（现在含 pending），要统计「剩余阻塞」应读 `check.json` 的 `state` 而不是退出码，旧报告的历史记录不追溯改写；② `PROTOCOL["original_term_policy"]` 的默认值是我的选择不是 Owner 的，R13 只能保证「卡与默认一致」，不能保证「默认是对的」；③ 「模块加载失败 → R14 FAIL」这条路径没有独立注入测试（需临时移走文件），属未验项。
+
+**边界**：研究行动 0（M1/M1b 各 2/2 仍用尽）、模型 0、fit 0、现金 0、推送 0；`confirmed_cash_spent=null` → unknown；平台用量 unknown。W05 卡仍 `not_authorized`，M1b 代理签名仍 `needs_review` 未代签；`src/` 未改，冻结包未动。
+
 ## 2026-11-20 W05a：RM3 模块先做到可证伪，再去要授权（周期检查第 8 轮，北京时间 13:28 起）
 
 零研究行动、零模型、零现金、零推送、零外发。起点 `ec6d7af` 干净，`git diff --stat` 全程为空——本轮只新增文件，`src/` 一行未改。
