@@ -31,9 +31,25 @@ Limitations, stated so the numbers are not over-read:
 
 import argparse
 import ast
+import hashlib
 import json
 from pathlib import Path
 import sys
+
+
+def population_sha(entrypoints):
+    """Fingerprint the *set of names* scanned, so two rounds are comparable.
+
+    The counts in the report are ratios over a population that grows whenever a
+    script is added. Round 11 said 144 entrypoints and the next commit made it
+    145 without touching any scanned code -- so "20 dead" cannot be compared
+    across rounds unless the denominator is identified. This hash covers the
+    names only: it changes when a script appears, disappears or is renamed, and
+    it does not change when a script's contents change (that is what the
+    per-entry verdicts are for).
+    """
+    joined = "\n".join(sorted(item["entrypoint"] for item in entrypoints))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 POSIX_ONLY = frozenset({
     "fcntl", "pwd", "grp", "termios", "tty", "pty", "resource",
@@ -247,6 +263,8 @@ def render(graph, entrypoints):
     lines.append("")
     lines.append("Entrypoints: %d total, %d dead on Windows, %d lazy-only"
                  % (len(entrypoints), len(blocked), len(lazy_only)))
+    lines.append("Population: sha256:%s (names only, so two rounds stay comparable)"
+                 % population_sha(entrypoints))
     if blocked:
         lines.append("")
         lines.append("  DEAD ON WINDOWS")
@@ -341,6 +359,13 @@ def selftest():
         second = scan(root)[1]
         check("T10 two scans agree", second == entrypoints)
 
+        # T11: a count is not an identity. Same numerator, different denominator
+        # is what made round 11's "20 dead" incomparable to the next round.
+        check("T11 population hash is order-independent",
+              population_sha(entrypoints) == population_sha(list(reversed(entrypoints))))
+        check("T11b adding a script changes the population hash",
+              population_sha(entrypoints + [{"entrypoint": "added_later.py"}]) != population_sha(entrypoints))
+
     passed = sum(1 for _, ok, _ in results if ok)
     for name, ok, detail in results:
         print("%-58s %s %s" % (name, "PASS" if ok else "FAIL", "" if ok else "| " + detail))
@@ -368,6 +393,8 @@ def main(argv=None):
             "hard_blockers": sorted({m for n in graph for m, _ in graph[n]["top"]}),
             "lazy_blockers": sorted({m for n in graph for m, _ in graph[n]["lazy"]}),
             "offending_modules": sorted(n for n in graph if graph[n]["top"]),
+            "population_size": len(entrypoints),
+            "population_sha256": population_sha(entrypoints),
             "entrypoints": entrypoints,
             "dead_entrypoints": dead,
         }, indent=2, sort_keys=True))
