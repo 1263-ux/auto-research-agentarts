@@ -26,6 +26,7 @@ Exit codes
 """
 
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -98,6 +99,49 @@ def classify(root, relative):
     return record
 
 
+def module_level_fcntl_imports(root, relatives):
+    """Which of these files import fcntl in the *module body*, not in a function?
+
+    Only a module-body import makes a file unimportable on Windows, so those are
+    exactly the files a B1 repair has to edit. An import inside a function can
+    stay untouched: the module still imports, it only fails when that line runs.
+
+    Derived from the bytes rather than asserted, because the whole point here is
+    to stop guessing which files a repair would have to touch.
+    """
+    hits = []
+    for relative in relatives:
+        if not relative.endswith(".py"):
+            continue
+        path = root / relative
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                if any(alias.name == "fcntl" or alias.name.startswith("fcntl.")
+                       for alias in node.names):
+                    hits.append({"file": relative, "line": node.lineno, "kind": "import fcntl"})
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("fcntl"):
+                hits.append({"file": relative, "line": node.lineno,
+                             "kind": "from %s import ..." % node.module})
+    return hits
+
+
+def repair_conflict(records, hits):
+    """Pinned files a B1 repair must edit -- these cannot be saved by line endings.
+
+    `eol_only` says a pin differs only by CRLF. That excuses a file nobody
+    touches. It does not excuse a file the repair has to rewrite: a content edit
+    changes the hash whatever the checkout's line endings are.
+    """
+    pinned = {r["file"] for r in records}
+    return [h for h in hits if h["file"] in pinned]
+
+
 def exit_code(records):
     verdicts = {r["verdict"] for r in records}
     if "content_differs" in verdicts or "missing" in verdicts or "missing_blob" in verdicts:
@@ -107,7 +151,7 @@ def exit_code(records):
     return 0
 
 
-def render(code, records):
+def render(code, records, conflict):
     lines = ["%-52s %-14s %-10s %s" % ("file", "verdict", "disk/blob", "detail")]
     for r in records:
         if r["verdict"] in ("missing", "missing_blob"):
@@ -130,6 +174,18 @@ def render(code, records):
     if code == 2:
         lines.append("NOTE: the only difference is line endings, so the G5 environment gate "
                      "cannot pass on this checkout whether or not B1 is fixed.")
+    lines.append("")
+    if conflict:
+        lines.append("B1 repair is NOT free: %d pinned file(s) import fcntl in the module body"
+                     % len(conflict))
+        for hit in conflict:
+            lines.append("  %s:%d  %s" % (hit["file"], hit["line"], hit["kind"]))
+        lines.append("  => repairing B1 rewrites a pinned file, so its hash changes no matter")
+        lines.append("     which line endings the checkout uses. 'Fix B1 and check out as LF'")
+        lines.append("     does not keep both: the eol excuse covers untouched files only.")
+    else:
+        lines.append("B1 repair is free with respect to these pins: no pinned file imports")
+        lines.append("fcntl in the module body, so a repair could avoid rewriting them.")
     return "\n".join(lines)
 
 
@@ -182,6 +238,26 @@ def selftest():
         check("S5 missing file is reported, not skipped",
               classify(root, "gone.py")["verdict"] == "missing")
 
+        # S6: only a module-body import blocks import on Windows. A lazy import
+        # inside a function is a different repair (and a different hash risk).
+        (root / "pinned.py").write_bytes(b"import fcntl\n")
+        (root / "lazy.py").write_bytes(b"def f():\n    import fcntl\n")
+        hits = module_level_fcntl_imports(root, ("pinned.py", "lazy.py"))
+        check("S6 module-body fcntl import is a hit",
+              [h["file"] for h in hits] == ["pinned.py"], str(hits))
+        check("S6b a function-level import is not a hit",
+              "lazy.py" not in [h["file"] for h in hits], str(hits))
+        check("S6c the hit reports a line number", hits and hits[0]["line"] == 1, str(hits))
+        check("S7 an edit to a pinned file is reported as a conflict",
+              [h["file"] for h in repair_conflict([{"file": "pinned.py"}], hits)] == ["pinned.py"])
+        check("S7b a hit outside the pin set is not a conflict",
+              repair_conflict([{"file": "other.py"}], hits) == [])
+        check("S8 the report says the repair is not free when it conflicts",
+              "NOT free" in render(2, [{"file": "pinned.py", "verdict": "eol_only",
+                                        "disk_bytes": 2, "blob_bytes": 1, "detail": "d"}], hits))
+        check("S8b the report says free when nothing pinned has to change",
+              "free with respect to these pins" in render(2, [], []))
+
     passed = sum(1 for _, ok, _ in results if ok)
     for name, ok, detail in results:
         print("%-58s %s %s" % (name, "PASS" if ok else "FAIL", "" if ok else "| " + detail))
@@ -201,10 +277,12 @@ def main(argv=None):
     root = Path(args.root).resolve()
     records = [classify(root, relative) for relative in PINNED]
     code = exit_code(records)
+    conflict = repair_conflict(records, module_level_fcntl_imports(root, PINNED))
     if args.json:
-        print(json.dumps({"exit_code": code, "files": records}, indent=2, ensure_ascii=False))
+        print(json.dumps({"exit_code": code, "files": records, "b1_repair_conflict": conflict},
+                         indent=2, ensure_ascii=False))
     else:
-        print(render(code, records))
+        print(render(code, records, conflict))
     return code
 
 

@@ -212,7 +212,14 @@ def scan(root):
             continue
         package = ""
         edges, eager, unresolved = [], [], []
+        own_posix = set()
         for node, is_top, mod, level, names in all_imports(tree):
+            # The entrypoint script is NOT in `graph` (only src/autoresearch is),
+            # so its own module-body POSIX imports have to be collected here.
+            # Leaving this out made a script that only does `import resource` look
+            # alive: it reaches no src module, so every summary said "no blocker".
+            if is_top and mod and mod.split(".")[0] in POSIX_ONLY:
+                own_posix.add(mod.split(".")[0])
             targets = resolve_all(mod, level, names, package, src_root)
             if targets:
                 edges.extend(targets)
@@ -227,7 +234,7 @@ def scan(root):
         for edge in edges:
             reached_all |= closure(graph, edge, "eager")
             reached_all |= closure(graph, edge, "edges")
-        unguarded = sorted({m for name in reached for m, _ in graph[name]["top"]})
+        unguarded = sorted(own_posix | {m for name in reached for m, _ in graph[name]["top"]})
         # Laziness is "reachable, but not at import time": either the module import
         # itself is deferred, or a deferred edge leads to a module that is dead.
         # Reading only each module's own `lazy` list misses the second case, which is
@@ -242,6 +249,7 @@ def scan(root):
             "imports_autoresearch": bool(edges),
             "modules_reached": len(reached),
             "unguarded_posix": unguarded,
+            "own_posix": sorted(own_posix),
             "unguarded_in_modules": unguarded_modules,
             "lazy_posix": lazy,
             "unresolved": unresolved,
@@ -300,6 +308,9 @@ FIXTURE = {
     "scripts/dead_entry.py": "from autoresearch.eager import f\n",
     "scripts/live_entry.py": "from autoresearch.lazyuser import g\n",
     "scripts/pkg_entry.py": "from autoresearch.pkg import uses_sibling\n",
+    # own module-body POSIX import, reaching no src module at all: the shape that
+    # made three real scripts report `unguarded_posix == []` while dying on Windows
+    "scripts/own_resource_entry.py": "import resource\n",
 }
 
 
@@ -352,8 +363,21 @@ def selftest():
         check("T8 a nonexistent sibling resolves to nothing", targets == [], str(targets))
 
         dead = sorted(n for n in by_name if by_name[n]["unguarded_posix"])
-        check("T9 exactly the two dead entries are flagged",
-              dead == ["dead_entry.py", "pkg_entry.py"], str(dead))
+        check("T9 exactly the three dead entries are flagged",
+              dead == ["dead_entry.py", "own_resource_entry.py", "pkg_entry.py"], str(dead))
+
+        # T10: the false negative that shipped for three rounds. An entrypoint's own
+        # top-level POSIX import was invisible because the script is not in `graph`.
+        own = by_name["own_resource_entry.py"]
+        check("T10 an entrypoint's own top-level POSIX import is blocking",
+              own["unguarded_posix"] == ["resource"], str(own))
+        check("T10b it is attributed to the entrypoint, not to a module",
+              own["unguarded_in_modules"] == [], str(own.get("unguarded_in_modules")))
+        check("T10c a script-only blocker never lands in the src-scoped summary",
+              sorted({m for n in graph for m, _ in graph[n]["top"]}) == ["fcntl"],
+              "hard_blockers must stay src-scoped; entrypoint_blockers carries the rest")
+        check("T10d an entrypoint that is alive has an empty own_posix",
+              by_name["live_entry.py"]["own_posix"] == [], str(by_name["live_entry.py"]))
 
         # T10: determinism, because the report quotes these numbers
         second = scan(root)[1]
@@ -391,6 +415,10 @@ def main(argv=None):
     if args.json:
         print(json.dumps({
             "hard_blockers": sorted({m for n in graph for m, _ in graph[n]["top"]}),
+            # Scope matters: `hard_blockers` only covers src/autoresearch. A script
+            # can also die on its own top-level POSIX import, which never shows up
+            # there. Keep the two names separate instead of merging them.
+            "entrypoint_blockers": sorted({m for item in entrypoints for m in item.get("own_posix", [])}),
             "lazy_blockers": sorted({m for n in graph for m, _ in graph[n]["lazy"]}),
             "offending_modules": sorted(n for n in graph if graph[n]["top"]),
             "population_size": len(entrypoints),

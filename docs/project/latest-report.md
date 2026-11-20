@@ -1,5 +1,40 @@
 # 本轮进展
 
+## 2026-11-20 B1 重算：26 不是 20，选项 C 不成立（周期检查第 16 轮）
+
+零研究行动、零模型、零现金、零安装、零推送、平台用量 unknown。`src/` 一行未改。
+
+### 增量一：选项 C 被证伪——必须改的文件本身就在被钉列表里
+
+第 14 轮的推理是「6 个被钉文件里 5 个只差行尾 → 换回 LF 就能对上指纹 → 改 B1 与保住 G5 证据可以两全」。它漏了一个前提：`run_scheduling_policy_transfer.py:44` 的 `SOURCE_FILES` 就含 `src/autoresearch/bounded_study_ledger.py`，而 B1 的根因正是该文件第 9 行的模块体 `import fcntl`。行尾规范化只能救「没人碰过的文件」，救不了被改写内容的那一个。
+
+`verify_scheduling_policy_transfer.py:579-588` 拿活工作树逐文件读字节，与存档指纹比对，不等即 `A frozen source file changed.`。`g5_pin_probe.py` 自检 8/8 → **15/15**，新增判定用 AST 从被钉文件自己的字节读出「谁在模块体导入 POSIX 模块」（函数内导入不算）。实测输出 `B1 repair is NOT free`，唯一冲突行 `bounded_study_ledger.py:9`。
+
+### 增量二：判死入口 20 → 26，根因 1 条 → 2 条
+
+`portability_scan.py:230` 的 `unguarded` 只从 `graph` 取，而 `graph` 只装 `src/autoresearch/*.py`——**入口脚本自己不在图里**。只写 `import resource`、不 import 项目模块的脚本 `reached` 为空 → 被判成活的。
+
+6 个判错逐个 `--help` 实测，全部为真死、模块名与归因吻合：
+
+| 入口 | 缺失模块 | 修正前 |
+| --- | --- | --- |
+| `model_feedback_pilot_guard.py` | `fcntl` | 判活 |
+| `project_autonomy_guard.py` | `fcntl` | 判活 |
+| `run_tabular_transfer.py` | `resource` | 判活 |
+| `run_cpu_transfer_benchmarks.py` | `resource` | 判活 |
+| `run_g4_group_candidate.py` | `resource` | 判活 |
+| `verify_native_group_candidate.py` | `resource` | 判活 |
+
+`population_size` 仍 149、`population_sha256` 不变。新增 `entrypoint_blockers` 区分范围：`hard_blockers: ['fcntl']` 只覆盖 src，入口层并集是 `['fcntl','resource']`。自检 13/13 → **17/17**。
+
+### 增量三：选项 D 实测，26 个救 21 个
+
+不改被钉文件，把 `fcntl` 以 `PYTHONPATH` 注入（`msvcrt.locking` 锁 1 字节并恢复偏移，语义不等价于 POSIX 整文件锁）。`status` 从 `RC=1` 变成 `PROJECT_NOT_FOUND` 结构化 JSON；锁真互斥（第二进程 `BLOCKED 13`，退出后 `ACQUIRED`）；空文件也能锁。
+
+26 入口 × 2 配置矩阵：无桩 `--help` **0/26**，有桩 **21/26**，stderr 仍含 fcntl **0**。剩 5 个统一死在 `resource`，其中 2 个双死因。**B1 是两个阻塞：fcntl 23、resource 5、交集 2、并集 26。**
+
+详见 [B1 重算报告](workbuddy/b1-recount-20261120.md)。
+
 ## 2026-11-20 「跑一张卡就推一格」被证伪，以及退出码补语义（周期检查第 15 轮）
 
 零研究行动、零模型、零现金、零安装、零推送、平台用量 unknown。
