@@ -153,6 +153,8 @@
 | 增量 1 结果 | **29 条阻塞：7 confirmed / 0 stale / 22 undecidable / 0 unmapped**，`EXIT 0 (MAPPING_COMPLETE)` |
 | 增量 2 | `scripts/g5_pin_probe.py`（8 自检）+ 报告 `b1-g5-eol-20261120.md` |
 | 增量 2 结果 | 6 个被钉文件 **5 个 `eol_only`**、1 个 `match`，`EXIT 2 (EOL_ONLY_GATE_ALREADY_RED)` |
+| 增量 3 | `scripts/round_align.py`（9 自检）：一条命令给出 head / ahead / dirty / 最近保护文件写入分钟数 / 预算 / 8 个门禁的原样退出码 |
+| 增量 3 结果 | 真实跑一条命令得全表；**门禁退出码原样打印，不做 pass/fail 汇总裁决**（`rc=1` P2、`rc=2` W05、`rc=2` G5 一屏可见） |
 | 用量 | 现金 0 / 模型 0 / 研究行动 0 / 安装 0 / 推送 0 / 平台未知；`src/`、`.gitattributes` 均未改 |
 
 **增量 1 的两条硬事实**：① `stale = 0` —— 第 10 轮转写没有写进过时阻塞，Owner 照这份列表做决定不会被过期信息误导；② **「装依赖就能解锁 P2」是假的**：7 条是缺包，其余 22 条要数据/许可/凭据/上游，装包一条都解不开（卡 4 装了客户端仍没有 ES 服务，实测 9200/9300 均 `closed`）。另纠一处措辞：第 10 卡写 `pandas versions`（像「版本待核」），实测 **`pandas` 完全缺失**；`.venv` 里 numpy/scipy/pyyaml 在、pandas 不在，这解释了为什么 M 系列数值脚本能跑而表格/M4 路径不能。
@@ -160,6 +162,8 @@
 **增量 2 的关键**：第 11 轮的「修 B1 必然破坏 G5 证据」**只对 LF 检出成立**。本机 `core.autocrlf=true`，`.gitattributes` 只钉了 `fixture.py` 的 `eol=lf`，其余 5 个文件在 Windows 上是 CRLF；把 CRLF 换回 LF 后哈希**等于** blob，字节差与 CRLF 数逐个相等（685=685、56=56、117=117、761=761、866=866）。`scheduling_kernel.py` 的硬编码断言 `3a335e10…` 在本机读到 `493f0a4f…`——**这道门在任何人动手之前就已经是红的**。于是本机修 B1 无额外代价（也没有任何东西可失去）；同时新增选项 **C**：改 B1 + 让这 7 个文件按 LF 检出，不动校验器、不牺牲证据。
 
 **本轮自己踩的坑**：用行前缀当 `Edit` 的 `old_string`（`# Blockers that no local probe can settle` 只是注释行前缀），把该行剩余部分留成 `}, with the reason kept explicit. The`，直接语法错误；`Edit` 报成功、只有 Read 才看得见。教训：**锚点取整行，改完立刻 Read / py_compile**。
+
+**第二个坑（更值得记）**：给 `round_align.py` 写「超时」自检时用 `subprocess.run(timeout=0.3)` 去杀一个 `sleep(3)` 的子进程——**在 Windows 上这句会永久阻塞在 `communicate()`**，于是「验证超时」的测试自己挂死，且因为输出被缓冲，看起来像什么都没打印。同一份代码在 `python -c` 里跑却正常，排查花了四轮。结论：**超时契约用纯函数 `_record()` 测，不要用真实 sleeping 子进程测**；写门禁运行器时 `timeout` 之后 `communicate()` 的行为本身是要验证的对象。这与第 11 轮「两个 `serve_*` 挂 20 秒」是同一族现象，只不过这次挂的是我自己的测试。
 
 ## 预算与授权边界（沿用，不重开）
 

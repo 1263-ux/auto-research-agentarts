@@ -34,6 +34,14 @@
 
 由此多出第三条路 **C**：改 B1 + 让这 7 个文件按 LF 检出（不动校验器、不牺牲证据）。它涉及 `.gitattributes` 或新工作树，属环境变更，不由我自行决定；本机实测推荐 C。
 
+### 增量三：让「三小时对齐」变成一条命令
+
+`scripts/round_align.py`（自检 9/9）。每轮开头原本要手敲七八次：`git status`、`git log`、保护文件 mtime、预算文件、然后六个门禁逐个跑。这些都能跑错，而其中一个**确实跑错过**——经管道取退出码拿到的是管道的状态，失败的门禁会显示成成功。
+
+现在一条命令给出：head、ahead 数、脏文件、最近保护文件写入距今几分钟（并发写者信号）、预算（`null` 明确写「unknown, not zero」）、以及 8 个门禁的**原样退出码**。它只出报告，不做 pass/fail 裁决——把退出码折叠成一句「全绿」正是这个项目反复记录的失败模式。
+
+写它的超时自检时踩了个坑并留在测试注释里：用 `subprocess.run(timeout=0.3)` 杀一个 `sleep(3)` 子进程，**在 Windows 上会永久阻塞在 `communicate()`**，于是「验证超时」的测试自己挂死；且输出被缓冲，看起来像什么都没打印。同一份代码在 `python -c` 里却正常。结论：超时契约用纯函数 `_record()` 测，不用真实 sleeping 子进程测。
+
 ### 自己踩的坑
 
 拿**行前缀**当 `Edit` 的锚点（`# Blockers that no local probe can settle` 只是注释行前缀），把该行剩余部分留成 `}, with the reason kept explicit. The`——直接语法错误，而 `Edit` 报成功。教训：锚点取整行，改完立刻 Read 或 `py_compile`。
