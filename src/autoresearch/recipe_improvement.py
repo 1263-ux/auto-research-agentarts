@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from . import recipe_change_proposal as protocol
 from .contracts import ResearchError, canonical, fingerprint, identifier
 from .plan_feedback import project_observations
+from .prediction_summary import summarize_oof_range
 from .project_selection import _json_value, _text
 from .research_project import ResearchProject, safe_path, write_bytes_once
 from .research_recipe import compile_recipe, parse_json
@@ -457,6 +458,33 @@ def run_improvement_sequence(manifest, *, directory, base_directory=None, max_ro
         return {**result, "checkpoint_path": str(checkpoint), "evaluated_this_call": evaluated}
 
 
+def _verify_prediction_ranges(context, artifacts):
+    """Recompute captured ranges from the saved OOF artifact, without fitting."""
+    ranges = context.get("prediction_ranges")
+    if not ranges:
+        return
+    feedback = {item["action_id"]: item for item in context["feedback"]}
+    for item in ranges:
+        action = feedback[item["action_id"]]
+        envelope = artifacts[action["artifact_ref"]]
+        tool_result = envelope.get("tool_result")
+        analysis = tool_result.get("result", {}).get("analysis") if type(tool_result) is dict else None
+        _require(type(analysis) is dict and analysis.get("check") == item["check"]
+                 and type(analysis.get("oof")) is list
+                 and tool_result.get("tool_id") == action["method_id"]
+                 and envelope.get("action_id") == item["action_id"],
+                 "Export prediction range does not match its original saved CV artifact.")
+        try:
+            expected = summarize_oof_range(analysis["oof"])
+        except (KeyError, TypeError, ValueError):
+            raise ResearchError(
+                "INVALID_IMPROVEMENT_ROUND",
+                "Export saved OOF rows cannot be summarized from the original artifact.",
+            ) from None
+        _require(expected == item["summary"],
+                 "Export prediction ranges differ from the original saved OOF values.")
+
+
 def load_saved_export(directory):
     """Read the team's offline evidence export, not a reconstructed live project.
 
@@ -541,6 +569,7 @@ def load_saved_export(directory):
             _require(envelope["action_id"] == item["action_id"]
                      and observations == item["observations"],
                      "Export feedback differs from the original saved artifact.")
+    _verify_prediction_ranges(context["research_context"], artifacts)
     feedback = {item["action_id"]: item for item in context["research_context"]["feedback"]}
     for material in context["research_context"].get("supplied_materials", []):
         envelope = artifacts[material["artifact_ref"]]

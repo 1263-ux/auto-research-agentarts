@@ -94,6 +94,12 @@ manifest严格为`recipe-improvement-sequence-v1`、`mode`和`rounds`三字段�
 
 `recipe_improvement.py`已属于原`ResearchProject.code_identity()`的哈希范围；本次增加函数也会改变当前代码身份。原项目若要在新代码下继续执行，仍需主开发走既有显式兼容登记和未决请求核对，不能静默升级。离线读取或构造队列通过，不表示历史项目已适配新执行身份。
 
+### 保存预测范围原件核对（2026-11-20）
+
+本轮要改善：离线RSI虽然会携带`prediction_ranges`，读取时却只验证结构，未核对摘要是否仍等于同行动保存的逐行OOF。现在`load_saved_export`沿`action_id`和反馈`artifact_ref`读取原Ridge工件，只用原`tool_result.result.analysis.oof`重算相同摘要并逐字段比较；不拟合、不改反馈观察、不发布配方决定。修改`n`、负预测计数或把有数据的范围改成`null`都会拒绝导出。`summary=null`仅在原OOF为空时可复现，实际计数`0`继续是已观察的零；一致通过只证明包内算术对应，不提供科学审阅或缺失数据库认证。
+
+运行入口仍是`saved-export`和`sequence --mode saved-export`，命令格式不变。新增定点检查复用真实构造的完整导出，核对原工件、Host/context冻结副本和项目文件不变；历史A64及其他研究不重跑。
+
 ## 实际运行
 
 在仓库根目录，使用已有环境，无需安装或升级依赖：

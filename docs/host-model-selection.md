@@ -32,7 +32,7 @@
 
 缺字段表示没有捕获对应范围，`summary=null`表示没有可描述的保存OOF；二者均不能解释为零。实际计数`0`只描述该批评价行。观测极值描述本批目标，不提供物理或工程允许边界。计划与配方提示仅在捕获此字段时追加同一说明，不改变候选、预算或科学审阅门；无字段的旧v1／v2完整prompt保持原字节。
 
-新配方包沿既有离线RSI读取和原件一致性检查消费这一独立字段。离线reader不会另从OOF重算顶层范围，因此范围原件一致、算术复算和科学解释是不同核对。已有Host不回填；旧pending请求若与当前新构造context不同，沿原freshness检查返回`STALE_SELECTION_CONTEXT`并保留原件及累计名额，同ID不能作为新请求重发。
+新配方包沿既有离线RSI读取和原件一致性检查消费这一独立字段。`load_saved_export`从对应反馈行动的保存Ridge工件`tool_result.result.analysis.oof`重算范围，并与冻结顶层摘要逐字段相等；没有OOF时保留`summary=null`，不能把未知当零。该项只读复算不改原观察、不训练、不认证缺失数据库，也不提供科学解释。已有Host不回填；旧pending请求若与当前新构造context不同，沿原freshness检查返回`STALE_SELECTION_CONTEXT`并保留原件及累计名额，同ID不能作为新请求重发。
 
 模型原始JSON恰含`plan`、`reason`、`feedback_action_ids`和`expected_improvement`。`plan`恰含`question/basis/steps/expected_feedback`四项文本。反馈引用采用该请求context中的真实行动ID，已有反馈时至少引用一项。这里的`reason`解释计划为什么修订，与CLI参数中记录授权范围的`--reason`分别保存。
 

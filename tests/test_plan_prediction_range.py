@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -265,16 +267,46 @@ class PlanPredictionRangeTests(unittest.TestCase):
         inputs = improvement.load_saved_export(exported)
         self.assertEqual(inputs["trace"]["prediction_ranges"], ranges)
         self.assertEqual(inputs["trace"]["feedback"], record["context"]["research_context"]["feedback"])
+        spec = {"issue": {"summary": "Saved CV motivates a source review.",
+                          "feedback_action_ids": candidate["feedback_action_ids"]},
+                "acceptance": improvement_fixtures.SOURCE,
+                "next_question": "Review the source definitions before making a scientific claim."}
+        spec_path = fixture.root / "saved-oof-range.spec.json"
+        spec_path.write_bytes(canonical(spec).encode("utf-8"))
+        cli = subprocess.run([
+            sys.executable, "-B", str(Path(__file__).resolve().parents[1] / "scripts/run_recipe_improvement.py"),
+            "saved-export", "--evidence-root", str(exported), "--spec", str(spec_path),
+            "--output", str(fixture.directory), "--round-id", "saved-oof-range-cli",
+        ], capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(cli.returncode, 0, cli.stderr + cli.stdout)
+        self.assertEqual(json.loads(cli.stdout)["decision"], "keep")
         result = improvement.run_improvement_round(**inputs, directory=fixture.directory, round_id="saved-oof-range",
-            evidence_kind="saved_export_validation", issue={"summary": "Saved CV motivates a source review.",
-            "feedback_action_ids": candidate["feedback_action_ids"]}, acceptance=improvement_fixtures.SOURCE,
-            next_question="Review the source definitions before making a scientific claim.")
+            evidence_kind="saved_export_validation", **spec)
         self.assertEqual(result["decision"], "keep")
         self.assertEqual(improvement.read_improvement_round(fixture.directory, "saved-oof-range"), result)
         self.assertEqual(adapter_fixture.project.status(), before)
         self.assertEqual(HostModelSelection(adapter_fixture.project.root).status(), host_before)
         self.assertEqual(files(exported), originals)
         self.assertEqual(files(adapter_fixture.project.root), project_originals)
+
+        host_path = exported / "project/host-model-selections/state.json"
+        context_path = exported / "project/host-model-selections" / record["directory"] / "context.json"
+        host_raw, context_raw = host_path.read_bytes(), context_path.read_bytes()
+        for mutation in (
+            lambda saved: saved["prediction_ranges"][0]["summary"].update(
+                negative_predictions=saved["prediction_ranges"][0]["summary"]["negative_predictions"] + 1),
+            lambda saved: saved["prediction_ranges"][0].update(summary=None),
+        ):
+            host, frozen = json.loads(host_raw), json.loads(context_raw)
+            mutation(frozen["research_context"])
+            host["requests"][record["request_id"]]["context"] = frozen
+            host_path.write_bytes(canonical(host).encode("utf-8"))
+            context_path.write_bytes(canonical(frozen).encode("utf-8"))
+            with self.assertRaisesRegex(ResearchError, "prediction ranges differ"):
+                improvement.load_saved_export(exported)
+            host_path.write_bytes(host_raw)
+            context_path.write_bytes(context_raw)
+        self.assertEqual(improvement.load_saved_export(exported)["trace"]["prediction_ranges"], ranges)
 
 
 if __name__ == "__main__":
