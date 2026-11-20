@@ -1,5 +1,38 @@
 # 本轮进展
 
+## 2026-11-20 B1 的可达面：20 个入口在 Windows 上死于同一行 import（周期检查第 11 轮）
+
+零研究行动、零模型、零现金、零安装、源码零改动、零推送。
+
+**为什么做**：前 10 轮都把 B1 写成「三处现象 + 等 Owner 决定」。但「等」之前有两个更便宜的问题没回答：到底有多少入口是死的？修掉 `import fcntl` 之后这条链是不是就能跑？两个问题都只能靠测量，不能靠推理。
+
+**先纠一处记录缺陷**：第 8 轮用 `python ... | tail -4; echo "RC=$?"` 取退出码，拿到的是 `tail` 的 0。重取后三个子命令都是 `RC=1`。
+
+**测量（探针，不是修复）**：把只有一个空 `flock` 的 `fcntl.py` 放到 `PYTHONPATH` 上，`run_research_project.py status --workspace .` 立刻返回 `RC=2 {"code": "PROJECT_NOT_FOUND"}`。说明参数解析、控制器装配、错误码路径全部活着，**`fcntl` 是这条链上唯一的导入期阻塞**。桩本身等于关掉文件锁，会破坏互斥语义，所以只放 `runs/_probe/`，不进仓库、不被引用。
+
+**静态全量判定**：新增 `scripts/portability_scan.py`，纯标准库 AST，不导入 `src.autoresearch`（不触发锁/写盘/网络，在已坏的平台上也能跑）。它必须区分两种形态，否则补丁会写错：
+
+| 形态 | 含义 | 修法 |
+|---|---|---|
+| unguarded（模块体 import） | 模块根本无法导入 | 守卫式导入 / 平台分支 |
+| lazy（函数体内 import） | 导入正常，执行到该函数才失败 | 需要真正的跨平台锁实现 |
+
+真实结果：144 个入口 → **20 个判死、16 个 lazy-only**，根因单一（`bounded_study_ledger.py:9`）。
+
+**判定必须被测量裁决**：18 个判死入口逐个跑 `--help`，全部 `RC≠0` 且含 `No module named 'fcntl'`；9 个 lazy 抽样全部 `RC=0`。合计 **27 个测量点、0 冲突**。两个 `serve_*` 脚本连 `--help` 都不返回（20 秒超时被 SIGTERM），记为**未测**，不计入已验证。
+
+**决定性冲突（本轮最重要）**：`scripts/run_scheduling_policy_transfer.py` 的 `SOURCE_ROOT = Path(__file__).resolve().parents[1]` 指向**活工作树**，把 `bounded_study_ledger.py` 的哈希算进 `source_fingerprints` 并与固定协议比对。所以「让 20 个入口在 Windows 上活」与「让 G5 transfer 证据保持可验证」**互斥**——任何字节改动都会让存档指纹失配。B1 因此是取舍而不是工程量。
+
+顺带查清一件反直觉的事：`saved_study_reference.py:30` 也钉了同名文件（`1d39b54d…`，盘上是 `32758129…`），但它解析在 `_SOURCE = /workspace/...` 上，绑的是**原始快照**而非活树，所以**不会拦编辑**；代价是 G5 的原版复现（L2）在本机结构性不可达，L2 继续记 unknown。
+
+**我自己写错的三个地方（全部保留）**：① 模块级 import 被 `ast.walk` 与 `tree.body` 各算一次，同时进 `top` 和 `lazy`；② `from . import project_design, saved_study_reference` 的名字在 `node.names` 而非 `node.module`，解析器漏掉 → **把 `run_research_project.py` 这条已知必死的路径判成健康**（假阴性，最危险的一种）；③ 闭包把惰性边当导入期边 → `compile_research_recipe.py`、`fetch_project_source.py` 被判死而实测 `RC=0`（假阳性）。修法：每模块同时保留 `edges` 与 `eager`，导入期可达性只用 `eager`。三条都有夹具断言（T5/T6/T7/T8）。
+
+**自检与可复现**：`--selftest` **11/11 通过、退出码 0**；夹具覆盖模块体导入判死、函数内导入只算 lazy、顶层导入死模块判死、惰性导入死模块判活但报 lazy、`from . import sibling` 展开、同一 import 不得既算顶层又算惰性、两次扫描一致。产物在 `runs/portability-20261120/`（`runs/` 被 gitignore，只在盘上）。
+
+**边界**：研究行动 0 / 模型 0 / fit 0 / 现金 0 / 推送 0 / 外发 0；平台用量 unknown。`src/` 未改、冻结输入与 `COMPARISON` 未动、探针桩隔离在 `runs/_probe/`。W05 卡仍 `not_authorized` + `R13 PENDING`，M1b 代理签字仍 `needs_review`，均未动。本报告未经真人签字 → `needs_review`。
+
+**下一任务（已收敛成一个二选一）**：是否同意把 G5 scheduling-threshold-transfer 证据标记为「历史证据（绑定 `62f09ed`）」，从而允许修改 `bounded_study_ledger.py` 以解除 20 个入口在 Windows 上的死锁？同意则下一轮做守卫式导入 + Windows 锁抽象并显式更新期望指纹；不同意则这批入口保持不可用，P2 所需调用记录只能走不依赖该链的独立模块路径。并行可做的零成本项：查两个 `serve_*` 为何在 `--help` 下挂起、补 P2 的 R5（两张卡缺版本化）。
+
 ## 2026-11-20 P2 配方库门禁：把「未通过」变成可复算判定（周期检查第 10 轮，北京时间 15:10 起）
 
 零研究行动、零模型、零现金、零安装、零推送。W05 线整体卡在 Owner（F1 语料 / F2 策略 / 签字），M1、M1b 额度用尽，所以本轮做工作台本阶段重点的另一半：十个以上配方的 P2 验收。

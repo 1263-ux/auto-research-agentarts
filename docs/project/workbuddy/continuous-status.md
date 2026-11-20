@@ -1,8 +1,8 @@
 # WorkBuddy 持续推进 · 接续状态
 
 - **启动**：2026-11-20 00:05 +08（北京时间）· 主控 WorkBuddy · Owner feng
-- **集成轮次**：00:28（第一轮）→ 00:41（第二轮）→ 00:50（第三轮）→ 02:24–03:05（第 7 轮，三小时对齐）→ 13:28–14:05（第 8 轮，三小时对齐）→ **15:07–（第 9 轮）**
-- **下次三小时对齐**：2026-11-20 16:28 +08（第 8 轮为对齐点；第 9 轮是同一对齐窗口内的续做）
+- **集成轮次**：00:28（第一轮）→ 00:41（第二轮）→ 00:50（第三轮）→ 02:24–03:05（第 7 轮，三小时对齐）→ 13:28–14:05（第 8 轮，三小时对齐）→ 15:07–15:40（第 9、10 轮）→ **16:09–（第 11 轮，三小时对齐点 16:28）**
+- **下次三小时对齐**：2026-11-20 19:28 +08（第 11 轮已覆盖 16:28 对齐点；对齐只是检查点，手上任务照常推进）
 - **依据**：[持续推进计划](continuous-plan.md) · [启动指令](continuous-handoff.md) · [当前事实](../current.md)
 - **本文件 owner**：主控（单一写者）。成员不得改本文件；各自交付写入自己的文件，由主控集成。
 
@@ -85,6 +85,26 @@
 
 
 
+## 第 11 轮 · B1 可达面（2026-11-20 16:09– +08，零研究行动）
+
+| 项 | 实测 |
+| --- | --- |
+| 起点 | `097f888`（main，ahead origin/main 8，未推）；工作树干净 |
+| 交付 | `scripts/portability_scan.py`（静态 AST 可达性）+ 报告 `portability-b1-20261120.md` + `runs/portability-20261120/`（gitignored） |
+| 判定 | 144 个入口 → **20 个在 Windows 上判死、16 个 lazy-only**；offending module 只有 1 个：`bounded_study_ledger.py:9` |
+| 测量校验 | 18 个判死逐个 `--help` → 全部 `RC≠0` 且含 `No module named 'fcntl'`；9 个 lazy 抽样 → 全部 `RC=0`；**27 个测量点 0 冲突**；2 个 `serve_*` 连 `--help` 都挂（20s 超时）→ **记为未测** |
+| 探针（非修复） | 空 `fcntl` 桩入 `PYTHONPATH` → `status` 输出 `PROJECT_NOT_FOUND` 结构化 JSON → **fcntl 是唯一导入期阻塞** |
+| 自检 | `--selftest` **11/11**、退出码 0 |
+| 用量 | 现金 0 / 模型 0 / 研究行动 0 / 安装 0 / 推送 0 / 平台未知；`src/` 一行未改 |
+
+**决定性冲突（B1 从「等决定」变成「一个二选一」）**：`run_scheduling_policy_transfer.py` 用 `SOURCE_ROOT = Path(__file__).resolve().parents[1]`（**活工作树**）把 `bounded_study_ledger.py` 的哈希算进 `source_fingerprints` 并与固定协议比对。因此「修好 20 个入口」与「保住 G5 存档证据可验证」**互斥**——任何字节改动都会让指纹失配。
+
+**一枚不拦编辑的钉（反直觉，需记住）**：`saved_study_reference.py:30` 也钉同名文件（`1d39b54d…` vs 盘上 `32758129…`），但它解析在 `_SOURCE = /workspace/work/scheduling-threshold-source-62f09ed` 上（第 55 行），绑的是**原始 Linux 快照**，本机不存在 → **不拦活文件**，同时说明 G5 的 L2 原版复现结构性不可达（L2 继续 unknown）。
+
+**自己写错的三处（保留，已固化为夹具）**：① 模块级 import 被 `ast.walk` 与 `tree.body` 各算一次，同时进 `top`/`lazy`；② `from . import a, b` 的名字在 `node.names` 而非 `node.module` → 把 `run_research_project.py` 判成健康（**假阴性，最危险**）；③ 闭包把惰性边当导入期边 → `compile_research_recipe.py`、`fetch_project_source.py` 被判死而实测 `RC=0`（假阳性）。修法：每模块保留 `edges` 与 `eager` 两套边，导入期可达性只用 `eager`。
+
+**计数陷阱（新形态）**：修完再数 `fcntl` 出现次数，24 → 35，多出的 11 次全来自新写的扫描器自己。**新增一个「提到某词的文件」会改变这个词的计数**，与「`grep | head` 截断少计」是同一类错误的另一面；报告中的计数一律注明范围。
+
 ## 预算与授权边界（沿用，不重开）
 
 - 共享累计现金上限 **5 CNY**；`confirmed_cash_spent = null` → **unknown**，不记 0。
@@ -113,7 +133,7 @@
 1. **W02 未复算**。`datasetsforecast==1.1.0`、pandas 版本、M4 Hourly 数据与 `submission-118.zip`、数据体量与许可均待核；官方断言只是 L0。W03 的 M4 对照框架已备，**ICT 列与等价性结论保持 unknown**。
 2. **P2 未通过**。10 张配方卡数达标，但 **10/10 的「本项目调用记录」全为无（待授权）**、最小例均未执行验证、4 张版本/提交/许可仍 unknown、三类覆盖不均衡。索引已单列差距说明。
 3. **B1 是回归，不是历史行为**：`src/autoresearch/bounded_study_ledger.py` 由 `62f09ed`（2026-11-14 07:36 UTC）引入，第 9 行顶层 `import fcntl`；A29/A30（11-03~04）时该导入链不存在。git 只能证明「模块当时不存在」，**当时是 POSIX 还是 Windows = unknown**。
-4. **B1 数字口径统一**（R2 指出 W03b 与主控自述冲突，实测三口径）：`import fcntl` 语句 **8 处**（其中顶层无条件 1 处 = B1 直接原因）；若按 `fcntl` token 含 `flock` 计，src 三文件 **12 处**；全仓含 `.pyc` **26 处**。对外统一用「import 语句 8 处」，其余口径须注明范围。核心结论不受影响。
+4. **B1 数字口径统一**（R2 指出 W03b 与主控自述冲突，实测三口径）：`import fcntl` 语句 **8 处**（其中顶层无条件 1 处 = B1 直接原因）；若按 `fcntl` token 含 `flock` 计，src 三文件 **12 处**；全仓含 `.pyc` **26 处**。对外统一用「import 语句 8 处」，其余口径须注明范围。核心结论不受影响。**第 11 轮补充一条计数陷阱**：新增 `scripts/portability_scan.py` 后，`src`+`scripts` 内含 `fcntl` 的行数由 24 变 35（多出的 11 行全来自扫描器自身）。**任何计数都必须连同「当时的文件集合」一起报**，否则同一个词会因新增文件而变数。
 5. **W05 前置依据已备**：`scripts/compare_project_policies.py` 有同预算两臂设计但 B1 下 Windows 不可运行且会执行真实工具；`plan_mdes.py --help` 在 B1 下可达；预算门部分是代码、部分是协调记录，跨卡累计需人工写死。**W05 卡草案仍待主控起草**，执行需新授权。
 6. **口径防线**：禁写「输出口径一致 / 已复现 / 已复算 / 已对照 / 等价 / 已接入平台」「容差已通过」等，直到有真实回执。`p>0.05 ≠ 等价证据`（需 TOST）；MDES \|Δmrr@10\| ≥ .2105、recall@20 有效样本量为 1。
 
@@ -122,11 +142,13 @@
 | 编号 | 事项 | 需要什么 |
 | --- | --- | --- |
 | D1 | 平台接入继续暂缓 | Owner 决定是否解除；P3 的 AgentArts 两轮闭环无法启动 |
-| **B1** | CLI 主入口在 Windows 因 `fcntl` 不可用 | 三选一：① POSIX 环境 / ② 兼容 shim（需授权改源码 + bounded study 专项回归）/ ③ 维持阻塞 |
+| **B1** | CLI 主入口在 Windows 因 `fcntl` 不可用 | 第 11 轮已量化：**144 个入口中 20 个判死、16 个 lazy-only**，根因单一（`bounded_study_ledger.py:9`）；27 个测量点 0 冲突。选项收敛为「见 B1×G5 取舍」一行 |
 | **W02 补依赖** | 官方评分复算 | 一次性授权：装 `datasetsforecast==1.1.0` + 依赖、下载 M4 数据与 `submission-118.zip`、确认数据许可。零现金但改本机环境并新增外部数据 |
 | 配方实跑 | P2 的「本项目调用记录」 | 各配方的依赖安装、数据下载、索引/API 授权（BEIR 独立索引、OpenML API key、GPT Researcher 等模型凭证） |
 | M1b 签字 | 审批卡 `needs_review` | 仅本人可清 |
 | 报名状态 | unknown | 核实是否已报名（截止 2026-11-30） |
+| **B1×G5 取舍** | 第 11 轮新发现：修 B1 **必然**让 G5 transfer 证据的 `source_fingerprints` 失配 | 一个二选一：是否同意把 G5 scheduling-threshold-transfer 证据标记为**历史证据（绑定 `62f09ed`）**，从而允许修改 `bounded_study_ledger.py`？同意→下一轮做守卫式导入 + Windows 锁抽象并显式更新期望指纹；不同意→20 个入口保持不可用，P2 调用记录只走不依赖该链的独立模块路径 |
+| `serve_*` 挂起 | 第 11 轮副作用发现：`serve_local_workbench.py` / `serve_project_workbench.py` 连 `--help` 都不返回（20s 超时被 SIGTERM） | 零成本可查（不属研究行动）：是否忽略参数直接起服务；查清前这两个入口的可用性记 **unknown**，不写「已通过」 |
 | **W05 F1 独立数据** | 卡草案的 open 项 | Owner 在 O1 同卷换题 / O2 另一 CFR title 固定卷（推荐）/ O3 其他公有领域源 中选一；选后定题量 |
 | **W05 F2 扩展词策略** | 卡草案的**新缺口**（第 8 轮发现） | F2 只冻结了 `fb_terms=10`，未定「扩展词表怎么选」。实测 `combined_top_k` 与 `always_retain` 在 `fb_terms=1` 时结果不同（3 篇 vs 4 篇）→ Owner 需在 F2 补 `original_term_policy` 并冻结；**不改视为未达 9/9** |
 | **W05 F4 反馈分支** | 卡草案的 blocked 项 | 依赖 B1 处置（同上）；分支条件已冻结、真实回执无法取得 |
@@ -140,13 +162,11 @@
 | --- | --- |
 | W01 现场与接续记录 | **完成**（含 5 处独审修订） |
 | W02 M4 复算 | **阻塞**：断言与缺项已固定，转 W04；需授权 |
-| W03 入口定位 / 对照框架 | 入口定位**完成**（含 B1）；对照框架已备，ICT 列待 W02 原输出 |
+| W03 入口定位 / 对照框架 | 入口定位**完成**（含 B1）；对照框架已备，ICT 列待 W02 原输出；**第 11 轮把 B1 量化**：144 入口 / 20 判死 / 16 lazy-only，`scripts/portability_scan.py` 自检 11/11 |
 | W04 / W04b / W04c 候选与配方库 | **完成**：9 候选登记 + 10 张只读卡 + 索引；**第 10 轮把 P2 判定做成可复算门禁**（`recipe-manifest` + `p2_recipe_check.py`，11 规则，自检 15/15）→ 当前 `EXIT 1`：R5 两张未版本化、R6/R7 **10/10 全缺** |
 | 独立评审（办法 / R1 / R2） | **完成**：两项 needs_review 已闭环，3 项新增已在本版处理 |
 | W05 新课题卡 | **草案 v0.1 已起草**（第 7 轮）：7 frozen / 1 open / 1 blocked，机械校验 `EXIT 2`；**执行仍需授权**；批准后先做 W05a（RM3 模块 + 单测） |
 | W06 汇集证据 | 待 P3/P4 真实产物 |
-
-| **02:24–03:05（第 7 轮）** | W05 卡草案 v0.1（7 frozen / 1 open / 1 blocked）+ `w05_card_check.py`（自检 20/20）+ 7 个数字复算 + 上一会话 16 个交付物入库 | **现金 0 / 模型 0 / 研究行动 0 / 推送 0 / 外发 0 / 平台用量 unknown** | W05 F1 选语料、F4 待 B1、M1b 签字、D1、报名 | 卡草案待 Owner 审；其余零成本项已用尽 |
 
 ## 独审 needs_review 台账
 
